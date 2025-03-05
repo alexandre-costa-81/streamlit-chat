@@ -4,6 +4,7 @@ import tempfile
 import certifi
 
 from langchain.memory import ConversationBufferMemory
+from langchain.prompts import ChatPromptTemplate
 from langchain_groq import ChatGroq
 from langchain_openai import ChatOpenAI
 from loaders import load_website, load_youtube, load_csv, load_pdf, load_text
@@ -47,13 +48,40 @@ def load_files(file_type, value):
 def load_model(provider, model, api_key, file_type, value):
     document = load_files(file_type, value)
 
+    system_message = '''Você é um assistente amigável chamado Oráculo.
+    Você possui acesso às seguintes informações vindas de um documento {}:
+
+    ####
+    {}
+    ####
+
+    Utilize as informações fornecidas para basear as suas respostas.
+
+    Sempre que houver $ na sua saída, substitua por S.
+
+    Se a informação do documento for algo como "Just a moment... Enable JavaScript and cookies to continue"
+    sugira ao usuário carregar novamente o Oráculo'''.format(file_type, document)
+    template = ChatPromptTemplate([
+        ('system', system_message),
+        ('placeholder', '{chat_history}'),
+        ('user', '{user_input}')
+    ])
+
     chat = CONFIG_MODELS[provider]['chat'](model=model, api_key=api_key)
-    st.session_state['chat'] = chat
+
+    chain = template | chat
+
+    st.session_state['chat'] = chain
 
 def chat_page():
     st.header('Bem-vindo ao Oráculo', divider=True)
 
     chat_model = st.session_state.get('chat')
+
+    if chat_model is None:
+        st.error('Carregue um modelo para começar a conversar')
+        st.stop()
+
     messages = st.session_state.get('mensagens', ConversationBufferMemory())
 
     for message in messages.buffer_as_messages:
@@ -68,7 +96,7 @@ def chat_page():
         chat.markdown(user_input)
 
         chat = st.chat_message('ai')
-        response = chat.write_stream(chat_model.stream(user_input))
+        response = chat.write_stream(chat_model.stream({'user_input': user_input, 'chat_history': messages.buffer_as_messages}))
 
         messages.chat_memory.add_ai_message(response)
 
@@ -99,11 +127,13 @@ def sidebar():
 
         if st.button('Carregar modelo', use_container_width=True):
             load_model(provider, model, api_key, file_type, returned)
+        if st.button('Apagar histórico', use_container_width=True):
+            st.session_state['mensagens'] = ConversationBufferMemory()
 
 def main():
-    chat_page()
     with st.sidebar:
         sidebar()
+    chat_page()
 
 if __name__ == '__main__':
     main()
