@@ -1,4 +1,6 @@
+beautifulsoup4
 langchain
 langchain-groq
 langchain-openai
+langchain-community
 streamlit
