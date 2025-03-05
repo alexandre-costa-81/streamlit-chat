@@ -1,4 +1,9 @@
+
 import streamlit as st
+
+from langchain.memory import ConversationBufferMemory
+from langchain_groq import ChatGroq
+from langchain_openai import ChatOpenAI
 
 FILES_TYPES = [
     'Site',
@@ -9,32 +14,37 @@ FILES_TYPES = [
 ]
 
 CONFIG_MODELS = {
-    'Groq': {"models": ['llama-3.1-70b-versatile', 'gemma2-9b-it']},
-    'OpenAI': {"models": ['gpt-4o-mini', 'gpt-4o','o1-preview', 'o1-mini']},
+    'Groq': {"models": ['llama-3.3-70b-specdec', 'deepseek-r1-distill-qwen-32b', 'qwen-2.5-32b'], 'chat': ChatGroq},
+    'OpenAI': {"models": ['gpt-4o-mini', 'gpt-4o','o1-preview', 'o1-mini'], 'chat': ChatOpenAI},
 }
 
-MESSAGE_EXAMPLE = [
-    ('user', 'Olá'),
-    ('assistant', 'Olá, como posso te ajudar?'),
-    ('user', 'Quero saber o valor do dólar'),
-    ('assistant', 'A cotação do dólar é R$ 5,50'),
-]
+def load_model(provider, model, api_key):
+    chat = CONFIG_MODELS[provider]['chat'](model=model, api_key=api_key)
+    st.session_state['chat'] = chat
 
 def chat_page():
     st.header('Bem-vindo ao Oráculo', divider=True)
 
-    messages = st.session_state.get('mensagens', MESSAGE_EXAMPLE)
+    chat_model = st.session_state.get('chat')
+    messages = st.session_state.get('mensagens', ConversationBufferMemory())
 
-    for message in messages:
-        chat = st.chat_message(message[0])
-        chat.markdown(message[1])
+    for message in messages.buffer_as_messages:
+        chat = st.chat_message(message.type)
+        chat.markdown(message.content)
     
-    input_usuario = st.chat_input('Digite sua mensagem')
+    user_input = st.chat_input('Digite sua mensagem')
 
-    if input_usuario:
-        messages.append(('user', input_usuario))
+    if user_input:
+        messages.chat_memory.add_user_message(user_input)
+        chat = st.chat_message('human')
+        chat.markdown(user_input)
+
+        chat = st.chat_message('ai')
+        response = chat.write_stream(chat_model.stream(user_input))
+
+        messages.chat_memory.add_ai_message(response)
+
         st.session_state['mensagens'] = messages
-        st.rerun()
 
 def sidebar():
     tabs = st.tabs(['Upload de arquivos', 'Seleção de Modelos'])
@@ -58,6 +68,9 @@ def sidebar():
             value=st.session_state.get(f'api_key_{provider}')
         )
         st.session_state[f'api_key_{provider}'] = api_key
+
+        if st.button('Carregar modelo', use_container_width=True):
+            load_model(provider, model, api_key)
 
 def main():
     chat_page()
